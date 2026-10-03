@@ -576,6 +576,34 @@ function makeTextures() {
     }
     c.putImageData(img, 0, 0);
   }, { wrap: true });
+  TEX.skin = dynTex('skin', 512, 512, (c, w) => { // generic coating mottling + panel seams
+    const rg = mulberry32(21); c.fillStyle = 'rgb(236,236,236)'; c.fillRect(0, 0, w, w);
+    for (let i = 0; i < 70; i++) { const x = rg() * w, y = rg() * w, r = 30 + rg() * 90, v = rg() < 0.5 ? '255,255,255' : '200,202,205';
+      for (const [ox, oy] of [[0, 0], [w, 0], [-w, 0], [0, w], [0, -w]]) radial(c, x + ox, y + oy, r, [[0, `rgba(${v},.22)`], [1, `rgba(${v},0)`]]); }
+    const seams = (x, y, ww, hh, d) => {
+      if (d > 3 || (d > 1 && rg() < 0.25) || ww < 70 || hh < 70) { c.strokeStyle = 'rgba(70,74,80,.38)'; c.lineWidth = 1.2; c.strokeRect(x + 0.5, y + 0.5, ww, hh);
+        if (rg() < 0.35) { c.fillStyle = 'rgba(70,74,80,.28)'; for (let k = 6; k < ww; k += 14) c.fillRect(x + k, y + 3, 1.6, 1.6); } return; }
+      if (ww > hh) { const sx = ww * (0.35 + rg() * 0.3); seams(x, y, sx, hh, d + 1); seams(x + sx, y, ww - sx, hh, d + 1); }
+      else { const sy = hh * (0.35 + rg() * 0.3); seams(x, y, ww, sy, d + 1); seams(x, y + sy, ww, hh - sy, d + 1); }
+    };
+    seams(0, 0, w, w, 0);
+    for (let i = 0; i < 7; i++) { const x = rg() * (w - 60), y = rg() * (w - 40), ww = 18 + rg() * 40, hh = 14 + rg() * 26; c.strokeStyle = 'rgba(60,64,70,.42)'; c.strokeRect(x, y, ww, hh); }
+  }, { wrap: true });
+  TEX.env = dynTex('env', 512, 256, (c, w, h) => { // equirectangular sky used for fresnel reflections
+    const g = c.createLinearGradient(0, 0, 0, h);
+    g.addColorStop(0, '#3d6aa6'); g.addColorStop(0.42, '#a9c4de'); g.addColorStop(0.5, '#e6eef5'); g.addColorStop(0.58, '#9aa6ad'); g.addColorStop(1, '#4b524f');
+    c.fillStyle = g; c.fillRect(0, 0, w, h);
+    radial(c, w * 0.62, h * 0.30, 60, [[0, 'rgba(255,250,235,.95)'], [0.25, 'rgba(255,245,220,.45)'], [1, 'rgba(255,240,210,0)']]);
+  }, {});
+  TEX.env.coordinatesMode = BABYLON.Texture.EQUIRECTANGULAR_MODE;
+  TEX.console = dynTex('consoleTex', 128, 512, (c, w, h) => {
+    c.fillStyle = '#20252a'; c.fillRect(0, 0, w, h); const rg = mulberry32(31);
+    for (let y = 8; y < h - 30; y += 56) {
+      c.strokeStyle = 'rgba(200,210,215,.35)'; c.strokeRect(6.5, y + 0.5, w - 13, 48);
+      for (let k = 0; k < 5; k++) { const x = 16 + k * 22; if (rg() < 0.5) { c.fillStyle = '#c9cfd3'; c.fillRect(x - 2, y + 14, 4, 14); } else { c.fillStyle = '#0d0f11'; c.beginPath(); c.arc(x, y + 22, 6, 0, Math.PI * 2); c.fill(); c.fillStyle = '#9aa3a8'; c.fillRect(x - 1, y + 16, 2, 6); } c.fillStyle = 'rgba(220,230,235,.6)'; c.fillRect(x - 7, y + 36, 14, 2); }
+      if (rg() < 0.4) { c.fillStyle = rg() < 0.5 ? '#3fae5a' : '#c9962e'; c.fillRect(w - 26, y + 8, 10, 6); }
+    }
+  }, {});
   TEX.runway = dynTex('runwayTex', 64, 2048, (c, w, h) => {
     c.fillStyle = '#3b3e42'; c.fillRect(0, 0, w, h);
     const rg = mulberry32(5); for (let i = 0; i < 2500; i++) { c.fillStyle = `rgba(${rg() > 0.5 ? '255,255,255' : '0,0,0'},.05)`; c.fillRect(rg() * w, rg() * h, 1, 2); }
@@ -592,7 +620,19 @@ function makeMaterials() {
   MAT.f35 = stdMat('f35', [0.36, 0.39, 0.42], { spec: [0.16, 0.16, 0.17], power: 20 });
   MAT.enemy = stdMat('enemy', [0.31, 0.35, 0.31], { spec: [0.1, 0.1, 0.1] });
   MAT.dark = stdMat('dark', [0.09, 0.09, 0.10], { spec: [0.25, 0.25, 0.25], power: 40 });
-  MAT.canopy = stdMat('canopy', [0.10, 0.08, 0.03], { spec: [1, 0.88, 0.55], power: 110, emis: [0.10, 0.075, 0.02] });
+  MAT.canopy = stdMat('canopy', [0.10, 0.08, 0.03], { spec: [1, 0.88, 0.55], power: 160, emis: [0.06, 0.045, 0.012] });
+  const fres = (bias, power) => new BABYLON.FresnelParameters({ leftColor: new C3(1, 1, 1), rightColor: new C3(0, 0, 0), bias, power });
+  for (const k of ['f22', 'f35', 'enemy']) {
+    const m = MAT[k]; m.diffuseTexture = TEX.skin; m.reflectionTexture = TEX.env; m.reflectionFresnelParameters = fres(0.04, 2.6);
+    m.specularColor = new C3(0.22, 0.22, 0.23); m.specularPower = 14;
+  }
+  MAT.canopy.reflectionTexture = TEX.env; MAT.canopy.reflectionFresnelParameters = fres(0.22, 1.6);
+  MAT.pit = stdMat('pit', [0.12, 0.13, 0.14], { spec: [0.08, 0.08, 0.08], power: 12, emis: [0.03, 0.032, 0.036] });
+  MAT.bezel = stdMat('bezel', [0.05, 0.05, 0.055], { spec: [0.2, 0.2, 0.2], power: 30, emis: [0.015, 0.015, 0.018] });
+  MAT.frame = stdMat('frame', [0.07, 0.07, 0.075], { spec: [0.3, 0.3, 0.3], power: 40 });
+  MAT.console = stdMat('console', [1, 1, 1], { spec: [0.05, 0.05, 0.05], emis: [0.12, 0.12, 0.12] }); MAT.console.diffuseTexture = TEX.console;
+  MAT.glass = new BABYLON.StandardMaterial('hudGlass', scene); MAT.glass.diffuseColor = new C3(0.3, 0.6, 0.45); MAT.glass.emissiveColor = new C3(0.04, 0.10, 0.07);
+  MAT.glass.specularColor = new C3(0.7, 0.7, 0.7); MAT.glass.specularPower = 220; MAT.glass.alpha = 0.10; MAT.glass.backFaceCulling = false; MAT.glass.disableDepthWrite = true;
   MAT.mark = stdMat('mark', [0.62, 0.08, 0.08], { emis: [0.12, 0, 0] });
   MAT.missile = stdMat('missile', [0.86, 0.87, 0.86], { spec: [0.3, 0.3, 0.3], power: 40 });
   MAT.gear = stdMat('gear', [0.62, 0.63, 0.64]);
@@ -612,7 +652,7 @@ function makeMaterials() {
 
 // ======================= GEOMETRY BUILDER =======================
 class Geo {
-  constructor() { this.p = []; this.n = []; this.i = []; }
+  constructor() { this.p = []; this.n = []; this.i = []; this.uv = []; }
   tri(a, b, c, hint) {
     let ux = b[0] - a[0], uy = b[1] - a[1], uz = b[2] - a[2], vx = c[0] - a[0], vy = c[1] - a[1], vz = c[2] - a[2];
     let nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx;
@@ -622,6 +662,8 @@ class Geo {
     this.p.push(a[0], a[1], a[2], b[0], b[1], b[2], c[0], c[1], c[2]);
     this.n.push(nx, ny, nz, nx, ny, nz, nx, ny, nz);
     this.i.push(base, base + 1, base + 2);
+    const ax = Math.abs(nx), ay = Math.abs(ny), az = Math.abs(nz), k = 0.2;
+    for (const v of [a, b, c]) { if (ay >= ax && ay >= az) this.uv.push(v[0] * k, v[2] * k); else if (ax >= az) this.uv.push(v[2] * k, v[1] * k); else this.uv.push(v[0] * k, v[1] * k); }
   }
   quad(a, b, c, d, hint) { this.tri(a, b, c, hint); this.tri(a, c, d, hint); }
   box(cx, cy, cz, sx, sy, sz) {
@@ -635,7 +677,7 @@ class Geo {
   }
   mesh(name, mat) {
     const m = new BABYLON.Mesh(name, scene); const vd = new BABYLON.VertexData();
-    vd.positions = this.p; vd.normals = this.n; vd.indices = this.i; vd.applyToMesh(m);
+    vd.positions = this.p; vd.normals = this.n; vd.indices = this.i; vd.uvs = this.uv; vd.applyToMesh(m);
     m.material = mat; m.isPickable = false; return m;
   }
 }
@@ -700,7 +742,7 @@ const MODEL_DEF = {
     nozzle: { type: 'round', z: -7.75, len: 1.3, d: 1.12, exit: -8.42, w: 1.0 },
     inlet: [1.5, 0.05, 2.35, 0.5, 0.8, 0.14],
     canopy: { pos: [0, 0.93, 3.6], scale: [0.5, 0.46, 1.8] },
-    wingtip: [5.35, -0.15, -2.1], eye: [0, 1.22, 3.7], gear: [[0, 4.2], [1.3, -0.9]], gearH: 2.2,
+    wingtip: [5.35, -0.15, -2.1], eye: [0, 1.32, 3.7], gear: [[0, 4.2], [1.3, -0.9]], gearH: 2.2,
     m120: [0.5, -0.95, 0.3], m9: [0.9, -0.9, 0.9], gun: [-0.9, 0.65, 0.7], vapor: { z: -0.5, d0: 2.8, d1: 12, len: 9 }
   },
   ENEMY: {
@@ -740,7 +782,8 @@ function buildModel(kind, withFlames) {
     const st = MB.CreateCylinder('gs', { height: sh, diameter: 0.16, tessellation: 8 }, scene); st.position.set(x, -0.4 - sh / 2, gz); st.material = MAT.gear; st.parent = gearNode;
     const wh = MB.CreateCylinder('gw', { height: 0.28, diameter: 0.76, tessellation: 16 }, scene); wh.rotation.z = Math.PI / 2; wh.position.set(x, -D.gearH + 0.38, gz); wh.material = MAT.tire; wh.parent = gearNode;
   }
-  const M = { kind, D, root, meshes, gearNode, flames: [], vapor: null };
+  const M = { kind, D, root, meshes, gearNode, flames: [], vapor: null, canopy: cn, cockpit: null };
+  M.casters = meshes.concat(gearNode.getChildMeshes());
   if (withFlames) {
     M.fmat = { outer: fxMat(kind + 'fo', [1, 0.48, 0.16], 1), inner: fxMat(kind + 'fi', [1, 0.86, 0.6], 1), diamond: fxMat(kind + 'fd', [1, 0.62, 0.42], 1) };
     const flat = D.nozzle.type === 'flat';
@@ -751,8 +794,46 @@ function buildModel(kind, withFlames) {
     vc.bakeTransformIntoVertices(MX.RotationX(-Math.PI / 2));
     vc.position.set(0, 0.1, vp.z - vp.len * 0.15); vc.material = MAT.vapor; vc.parent = root; vc.visibility = 0; vc.isPickable = false; vc.setEnabled(false);
     M.vapor = vc;
+    M.cockpit = buildCockpit(root, D);
   }
   return M;
+}
+function buildCockpit(root, D) {
+  const node = new BABYLON.TransformNode('cockpit', scene); node.parent = root; node.position.set(D.eye[0], D.eye[1], D.eye[2]);
+  const deck = -0.38;
+  const box = (w, h, d, x, y, z, mat, parent) => { const m = MB.CreateBox('ck', { width: w, height: h, depth: d }, scene); m.position.set(x, y, z); m.material = mat; m.parent = parent || node; m.isPickable = false; return m; };
+  const tube = (pts, r) => { const m = MB.CreateTube('ckt', { path: pts.map(p => new V3(p[0], p[1], p[2])), radius: r, tessellation: 10 }, scene); m.material = MAT.frame; m.parent = node; m.isPickable = false; return m; };
+  box(0.86, 0.02, 1.7, 0, deck, 0, MAT.pit);
+  for (const s of [-1, 1]) {
+    box(0.07, 0.25, 1.75, s * 0.47, deck + 0.125, 0, MAT.pit);
+    box(0.17, 0.10, 0.95, s * 0.36, deck + 0.05, -0.05, MAT.pit);
+    const top = MB.CreatePlane('ckc', { width: 0.15, height: 0.88 }, scene); top.rotation.x = Math.PI / 2; top.position.set(s * 0.36, deck + 0.102, -0.05); top.material = MAT.console; top.parent = node; top.isPickable = false;
+    box(0.06, 0.22, 0.32, s * 0.43, -0.25, 0.52, MAT.pit);
+    tube([[s * 0.47, -0.14, -0.95], [s * 0.47, -0.14, 0.86]], 0.018);
+  }
+  const pnl = new BABYLON.TransformNode('panel', scene); pnl.parent = node; pnl.position.set(0, -0.27, 0.68); pnl.rotation.x = 14 * DEG;
+  box(0.80, 0.25, 0.04, 0, 0, 0, MAT.pit, pnl);
+  const mfd = [];
+  [-0.255, 0, 0.255].forEach((x, i) => {
+    box(0.214, 0.214, 0.02, x, -0.004, -0.028, MAT.bezel, pnl);
+    const t = new BABYLON.DynamicTexture('mfd' + i, { width: 256, height: 256 }, scene, true);
+    const sm = new BABYLON.StandardMaterial('mfdM' + i, scene); sm.disableLighting = true; sm.diffuseColor = new C3(0, 0, 0); sm.specularColor = new C3(0, 0, 0); sm.emissiveColor = new C3(0, 0, 0); sm.emissiveTexture = t;
+    const scr = MB.CreatePlane('mfdS', { size: 0.18 }, scene); scr.parent = pnl; scr.position.set(x, -0.004, -0.04); scr.material = sm; scr.isPickable = false;
+    mfd.push({ tex: t, ctx: t.getContext() });
+  });
+  box(0.80, 0.035, 0.26, 0, -0.135, 0.66, MAT.pit);
+  for (const s of [-1, 1]) box(0.012, 0.27, 0.012, s * 0.172, -0.01, 0.58, MAT.frame);
+  const glass = MB.CreatePlane('hudGlass', { width: 0.34, height: 0.26 }, scene); glass.parent = node; glass.position.set(0, -0.01, 0.58); glass.material = MAT.glass; glass.isPickable = false;
+  tube([[-0.47, -0.15, 0.80], [-0.42, 0.10, 0.80], [-0.24, 0.30, 0.80], [0, 0.36, 0.80], [0.24, 0.30, 0.80], [0.42, 0.10, 0.80], [0.47, -0.15, 0.80]], 0.024);
+  tube([[-0.47, -0.15, -0.48], [-0.40, 0.12, -0.48], [-0.22, 0.30, -0.48], [0, 0.34, -0.48], [0.22, 0.30, -0.48], [0.40, 0.12, -0.48], [0.47, -0.15, -0.48]], 0.03);
+  box(0.36, 0.32, 0.10, 0, 0.02, -0.30, MAT.pit); box(0.50, 0.40, 0.12, 0, -0.20, -0.36, MAT.pit);
+  const stick = new BABYLON.TransformNode('stick', scene); stick.parent = node; stick.position.set(0.33, deck + 0.10, 0.10);
+  const sg = MB.CreateCylinder('ckg', { height: 0.13, diameter: 0.034, tessellation: 10 }, scene); sg.bakeTransformIntoVertices(MX.Translation(0, 0.065, 0)); sg.parent = stick; sg.material = MAT.bezel; sg.isPickable = false;
+  box(0.04, 0.025, 0.05, 0, 0.14, 0.004, MAT.bezel, stick);
+  const thr = new BABYLON.TransformNode('throttle', scene); thr.parent = node; thr.position.set(-0.33, deck + 0.10, -0.05);
+  box(0.045, 0.08, 0.055, 0, 0.04, 0, MAT.bezel, thr);
+  node.setEnabled(false);
+  return { node, mfd, stick, thr };
 }
 function makeFlame(root, at, w, flat, mats) {
   const node = new BABYLON.TransformNode('flame', scene); node.parent = root; node.position.set(at[0], at[1], at[2]);
@@ -812,7 +893,7 @@ class Terrain {
     for (let j = 0; j <= n; j++) for (let i = 0; i <= n; i++) { const v = j * (n + 1) + i; pos[v * 3] = i * s; pos[v * 3 + 2] = j * s; nor[v * 3 + 1] = 1; col[v * 4 + 3] = 1; }
     const m = new BABYLON.Mesh('chunk', scene);
     const vd = new BABYLON.VertexData(); vd.positions = pos; vd.normals = nor; vd.colors = col; vd.indices = this.idx; vd.applyToMesh(m, true);
-    m.material = this.mat; m.isPickable = false; m.setEnabled(false);
+    m.material = this.mat; m.isPickable = false; m.receiveShadows = true; m.setEnabled(false);
     return { mesh: m, ix: 0, iz: 0, key: '', pos, nor, col };
   }
   fill(ch) {
@@ -924,7 +1005,7 @@ let runwayMesh = null, cityMesh = null, hangarMesh = null;
 function buildRunway(W) {
   if (runwayMesh) { runwayMesh.dispose(); hangarMesh.dispose(); }
   runwayMesh = MB.CreateGround('runway', { width: 60, height: 3400, subdivisions: 1 }, scene);
-  runwayMesh.material = MAT.runway; runwayMesh.isPickable = false; runwayMesh.metaAbs = [0, W.runwayElev + 0.25, 0];
+  runwayMesh.material = MAT.runway; runwayMesh.isPickable = false; runwayMesh.receiveShadows = true; runwayMesh.metaAbs = [0, W.runwayElev + 0.25, 0];
   const box = MB.CreateBox('hangar', { size: 1 }, scene); box.bakeTransformIntoVertices(MX.Translation(0, 0.5, 0)); box.material = MAT.bld; box.isPickable = false;
   const mats = [], cols = [], m = new MX();
   const add = (x, z, sx, sy, sz, c) => { MX.ComposeToRef(new V3(sx, sy, sz), Q.Identity(), new V3(x, 0, z), m); mats.push(...m.toArray()); cols.push(c[0], c[1], c[2], 1); };
@@ -1457,9 +1538,15 @@ function updateCamera(dt) {
     CAM.fov = lerp(CAM.fov, 0.82 + 0.2 * smooth(0.4, 2.2, P.mach) + P.abLevel * 0.03, 1 - Math.exp(-dt * 2));
   } else if (CAM.mode === 1) {
     const e = MODEL_DEF[SP.id].eye;
-    CAM.pos.copyFrom(P.pos).addInPlace(P.r.scale(e[0])).addInPlace(P.u.scale(e[1])).addInPlace(P.f.scale(e[2]));
-    let f = P.f.clone(); if (look) { f = rotAxis(f, P.u, CAM.yaw); f = rotAxis(f, P.r, -CAM.pitch); }
-    setCamBasis(f, P.u); CAM.fov = 1.05;
+    // head sinks under G, shakes with buffet near stall / transonic / afterburner
+    const gOff = clamp((P.gS - 1) * 0.011, -0.04, 0.085);
+    const buf = (P.stallWarn ? 0.006 : 0) + smooth(0.9, 1.0, P.mach) * (1 - smooth(1.02, 1.15, P.mach)) * 0.004 + P.abLevel * 0.0007;
+    const jx = rr(-1, 1) * buf, jy = rr(-1, 1) * buf;
+    CAM.pos.copyFrom(P.pos).addInPlace(P.r.scale(e[0] + jx)).addInPlace(P.u.scale(e[1] - gOff + jy)).addInPlace(P.f.scale(e[2]));
+    const dn = 7 * DEG; let f = P.f.scale(Math.cos(dn)).subtractInPlace(P.u.scale(Math.sin(dn)));
+    const up = P.u.scale(Math.cos(dn)).addInPlace(P.f.scale(Math.sin(dn)));
+    if (look) { f = rotAxis(f, P.u, CAM.yaw); f = rotAxis(f, P.r, -CAM.pitch); }
+    setCamBasis(f, up); CAM.fov = 1.2;
   } else if (CAM.mode === 2) {
     const vd = P.vel.length() > 5 ? P.vel.normalizeToNew() : P.f.clone();
     if (!CAM.fly || V3.Distance(CAM.fly, P.pos) > 1600 || V3.Dot(P.pos.subtract(CAM.fly), vd) > 350) {
@@ -1479,6 +1566,7 @@ function updateCamera(dt) {
     setCamBasis(CAM.f.add(new V3(rr(-1, 1), rr(-1, 1), rr(-1, 1)).scaleInPlace(s * 0.012)), CAM.u);
   }
   if (CAM.mode !== 1 || game.state !== 'play') { const gm = Math.max(0, groundAt(CAM.pos.x, CAM.pos.z)) + 2.5; if (CAM.pos.y < gm) CAM.pos.y = gm; }
+  camera.minZ = (game.state === 'play' && CAM.mode === 1 && P.alive) ? 0.05 : (renderer === 'WebGPU' ? 0.6 : 1.5);
   camera.position.copyFrom(CAM.pos); Q.RotationQuaternionFromAxisToRef(CAM.r, CAM.u, CAM.f, camera.rotationQuaternion); camera.fov = CAM.fov;
 }
 
@@ -1593,8 +1681,8 @@ function latLon() {
 function nearestEnemy() { let b = null, bd = 1e12; for (const e of enemies) if (e.alive) { const d = V3.DistanceSquared(e.pos, P.pos); if (d < bd) { bd = d; b = e; } } return b; }
 function backing(c, x, y, w, h) { c.save(); c.shadowBlur = 0; c.fillStyle = 'rgba(3,14,9,.58)'; c.fillRect(x, y, w, h); c.restore(); }
 
-function drawLadder(c, L, T, bw, bh) {
-  c.save(); c.beginPath(); c.rect(L + 84, T + 34, bw - 168, bh - 44); c.clip();
+function drawLadder(c, clip) {
+  c.save(); c.beginPath(); c.rect(clip[0], clip[1], clip[2], clip[3]); c.clip();
   let hx = P.f.x, hz = P.f.z, hl = Math.hypot(hx, hz);
   if (hl < 1e-3) { hx = -P.u.x * Math.sign(P.f.y); hz = -P.u.z * Math.sign(P.f.y); hl = Math.hypot(hx, hz) || 1; }
   hx /= hl; hz /= hl; const rx = hz, rz = -hx, pd = Math.asin(clamp(P.f.y, -1, 1)) / DEG;
@@ -1628,12 +1716,12 @@ function tape(c, x, y, h, val, step, every, ppu, side, fmt) {
   }
   c.restore();
 }
-function valBox(c, x, y, w, txt, side) {
+function valBox(c, x, y, w, txt, side, noBack) {
   const bx = side < 0 ? x - w - 6 : x + 6;
-  backing(c, bx, y - 14, w, 28); c.strokeRect(bx, y - 14, w, 28);
+  if (!noBack) backing(c, bx, y - 14, w, 28); c.strokeRect(bx, y - 14, w, 28);
   c.font = font(16, 1); c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillText(txt, bx + w / 2, y + 1);
 }
-function drawTargets(c, wl) {
+function drawTargets(c, wl, pit) {
   const ms = MSPEC[P.weapon], fp = (HH / 2) / Math.tan(CAM.fov / 2);
   if (wl && enemies.some(e => e.alive)) {
     const rad = Math.min(fp * Math.tan(Math.min(ms.cone, 35 * DEG)), HH * 0.45);
@@ -1653,7 +1741,7 @@ function drawTargets(c, wl) {
     }
   }
   const tg = P.target || nearestEnemy();
-  if (tg) {
+  if (tg && !pit) {
     const p = projPt(tg.pos), on = p && p[0] > 20 && p[0] < HW - 20 && p[1] > 20 && p[1] < HH - 20;
     if (!on) {
       const dx = tg.pos.x - CAM.pos.x, dy = tg.pos.y - CAM.pos.y, dz = tg.pos.z - CAM.pos.z;
@@ -1701,22 +1789,36 @@ function warnings() {
   if (P.brake) w.push([P.onGround ? '煞車 BRAKE' : '減速板 SPD BRK', false]);
   return w;
 }
+function combinerRect() { // project the HUD glass corners (cockpit view) to screen space
+  const e = MODEL_DEF[SP.id].eye; let x0 = 1e9, x1 = -1e9, y0 = 1e9, y1 = -1e9;
+  for (const [x, y] of [[-0.17, -0.14], [0.17, -0.14], [-0.17, 0.12], [0.17, 0.12]]) {
+    const p = projPt(local(e[0] + x, e[1] + y, e[2] + 0.58)); if (!p) return null;
+    x0 = Math.min(x0, p[0]); x1 = Math.max(x1, p[0]); y0 = Math.min(y0, p[1]); y1 = Math.max(y1, p[1]);
+  }
+  return (x1 - x0 > 220 && y1 - y0 > 150) ? [x0, y0, x1, y1] : null;
+}
 function drawHUD(dt) {
   const c = hctx; c.setTransform(DPR, 0, 0, DPR, 0, 0); c.clearRect(0, 0, HW, HH);
   if (game.state !== 'play') return;
-  const cx = HW / 2, cy = HH / 2, compact = HW < 760, imp = settings.units === 'imp';
-  const bw = Math.min(HW * 0.64, 760), bh = Math.min(HH * 0.6, 500), L = cx - bw / 2, R = cx + bw / 2, T = cy - bh / 2, B = cy + bh / 2;
+  const compact = HW < 760, imp = settings.units === 'imp';
+  let bw = Math.min(HW * 0.64, 760), bh = Math.min(HH * 0.6, 500), cx = HW / 2, cy = HH / 2;
+  let L = cx - bw / 2, R = cx + bw / 2, T = cy - bh / 2, B = cy + bh / 2;
+  const cr = CAM.mode === 1 && P.alive ? combinerRect() : null, pit = !!cr;
+  if (pit) { [L, T, R, B] = cr; bw = R - L; bh = B - T; cx = (L + R) / 2; cy = (T + B) / 2; }
+  const spX = pit ? L + 74 : L, alX = pit ? R - 88 : R, ty = pit ? T + 36 : T - 4;
   c.lineJoin = 'round'; c.lineCap = 'round'; c.lineWidth = 1.5; c.strokeStyle = HUDC; c.fillStyle = HUDC; c.shadowColor = 'rgba(30,255,130,.55)'; c.shadowBlur = 4;
   const V = P.vel.length();
   if (P.alive) {
-    drawLadder(c, L, T, bw, bh);
+    c.save();
+    if (pit) { c.beginPath(); c.rect(L - 4, T - 4, bw + 8, bh + 8); c.clip(); }
+    drawLadder(c, pit ? [spX + 10, ty + 34, alX - spX - 20, B - ty - 40] : [L + 84, T + 34, bw - 168, bh - 44]);
     if (V > 5) { const fp = projDir(P.vel.x / V, P.vel.y / V, P.vel.z / V); if (fp) { c.beginPath(); c.arc(fp[0], fp[1], 7, 0, Math.PI * 2); c.moveTo(fp[0] - 7, fp[1]); c.lineTo(fp[0] - 18, fp[1]); c.moveTo(fp[0] + 7, fp[1]); c.lineTo(fp[0] + 18, fp[1]); c.moveTo(fp[0], fp[1] - 7); c.lineTo(fp[0], fp[1] - 13); c.stroke(); } }
     const wl = projDir(P.f.x, P.f.y, P.f.z);
     if (wl) { const [x, y] = wl; c.beginPath(); c.moveTo(x - 17, y); c.lineTo(x - 9, y); c.lineTo(x - 5, y + 6); c.lineTo(x, y); c.lineTo(x + 5, y + 6); c.lineTo(x + 9, y); c.lineTo(x + 17, y); c.stroke(); }
-    drawTargets(c, wl);
+    drawTargets(c, wl, pit);
     // heading tape
-    const hdg = (Math.atan2(P.f.x, P.f.z) / DEG + 360) % 360, tw = Math.min(360, bw * 0.55), ppd = tw / 50, ty = T - 4;
-    backing(c, cx - tw / 2, ty - 32, tw, 34);
+    const hdg = (Math.atan2(P.f.x, P.f.z) / DEG + 360) % 360, tw = Math.min(360, bw * 0.55), ppd = tw / 50;
+    if (!pit) backing(c, cx - tw / 2, ty - 32, tw, 34);
     c.save(); c.beginPath(); c.rect(cx - tw / 2, ty - 32, tw, 34); c.clip();
     c.font = font(12); c.textAlign = 'center'; c.textBaseline = 'bottom';
     for (let d = Math.ceil((hdg - 26) / 5) * 5; d <= hdg + 26; d += 5) {
@@ -1728,49 +1830,52 @@ function drawHUD(dt) {
     c.beginPath(); c.moveTo(cx, ty + 2); c.lineTo(cx - 5, ty + 10); c.lineTo(cx + 5, ty + 10); c.closePath(); c.stroke();
     c.font = font(14, 1); c.textAlign = 'center'; c.textBaseline = 'top'; c.fillText(String(Math.round(hdg) % 360).padStart(3, '0'), cx, ty + 13);
     // speed & altitude tapes
-    const sp = spdU(V), al = altU(P.pos.y), th = Math.min(240, bh * 0.56);
-    tape(c, L, cy, th, sp, imp ? 10 : 20, 5, imp ? 1.4 : 0.75, -1, v => String(Math.round(v)));
-    tape(c, R, cy, th, al, imp ? 100 : 50, 5, imp ? 0.19 : 0.6, 1, v => nfmt(v));
-    valBox(c, L, cy, 70, String(Math.round(sp)), -1); valBox(c, R, cy, 84, nfmt(Math.round(al / 10) * 10), 1);
+    const sp = spdU(V), al = altU(P.pos.y), th = Math.min(240, bh * (pit ? 0.5 : 0.56));
+    tape(c, spX, cy, th, sp, imp ? 10 : 20, 5, imp ? 1.4 : 0.75, -1, v => String(Math.round(v)));
+    tape(c, alX, cy, th, al, imp ? 100 : 50, 5, imp ? 0.19 : 0.6, 1, v => nfmt(v));
+    valBox(c, spX, cy, 70, String(Math.round(sp)), -1, pit); valBox(c, alX, cy, 84, nfmt(Math.round(al / 10) * 10), 1, pit);
     c.font = font(12); c.textBaseline = 'alphabetic';
-    c.textAlign = 'right'; c.fillText(imp ? 'KT' : 'KM/H', L - 10, cy - th / 2 - 8);
-    c.textAlign = 'left'; c.fillText(imp ? 'FT' : 'M', R + 10, cy - th / 2 - 8);
-    const lx = L - 76, ly = cy + th / 2 + 22;
+    c.textAlign = 'right'; c.fillText(imp ? 'KT' : 'KM/H', spX - 10, cy - th / 2 - 8);
+    c.textAlign = 'left'; c.fillText(imp ? 'FT' : 'M', alX + 10, cy - th / 2 - 8);
+    const lx = spX - 76, ly = cy + th / 2 + 22;
     c.textAlign = 'left'; c.font = font(14, 1); c.fillText(`M ${P.mach.toFixed(2)}`, lx, ly);
     if (P.mach >= 1) { c.font = font(11, 1); c.fillText('超音速', lx + 78, ly); }
     c.font = font(13); c.fillText(`G ${P.gS.toFixed(1)}`, lx, ly + 19); c.fillText(`α ${(P.alpha / DEG).toFixed(1)}°`, lx, ly + 37);
-    c.globalAlpha = 0.7; c.fillText(`最大 G ${P.gMaxSeen.toFixed(1)}`, lx, ly + 55); c.globalAlpha = 1;
+    if (!pit) { c.globalAlpha = 0.7; c.fillText(`最大 G ${P.gMaxSeen.toFixed(1)}`, lx, ly + 55); c.globalAlpha = 1; }
     const gh = Math.max(0, groundAt(P.pos.x, P.pos.z)), agl = P.pos.y - gh - (P.onGround ? SP.gearHt : 0), vs = imp ? P.vel.y * 196.85 : P.vel.y;
-    const rx = R + 6; c.font = font(13);
+    const rx = alX + 6; c.font = font(13);
     c.fillText(`VS ${vs >= 0 ? '+' : ''}${nfmt(vs)}`, rx, ly);
     if (agl < 1500) { c.font = font(13, 1); c.fillText(`R ${nfmt(altU(Math.max(0, agl)))}`, rx, ly + 19); }
-    const [la, lo] = latLon(); c.font = font(11); c.globalAlpha = 0.8; c.fillText(fmtLatS(la), rx, ly + 38); c.fillText(fmtLonS(lo), rx, ly + 53); c.globalAlpha = 1;
+    if (!pit) { const [la, lo] = latLon(); c.font = font(11); c.globalAlpha = 0.8; c.fillText(fmtLatS(la), rx, ly + 38); c.fillText(fmtLonS(lo), rx, ly + 53); c.globalAlpha = 1; }
+    c.restore();
+    c.lineWidth = 1.5; c.strokeStyle = HUDC; c.fillStyle = HUDC; c.shadowColor = 'rgba(30,255,130,.55)'; c.shadowBlur = 4;
     // warnings
     const ws = warnings(), blink = (game.time * 3) % 1 < 0.6;
     c.textAlign = 'center'; c.textBaseline = 'alphabetic';
-    ws.forEach((w, i) => { if (w[1] && !blink) return; c.fillStyle = w[1] ? WARN : HUDC; c.font = font(w[1] ? 18 : 13, 1); c.fillText(w[0], cx, B + 26 + i * 22); });
+    ws.forEach((w, i) => { if (w[1] && !blink) return; c.fillStyle = w[1] ? WARN : HUDC; c.font = font(w[1] ? 18 : 13, 1); c.fillText(w[0], cx, pit ? T - 14 - i * 22 : B + 26 + i * 22); });
     c.fillStyle = HUDC;
   }
-  // bottom-left: radar + throttle
-  const rr0 = compact ? 50 : 70, rx0 = 22 + rr0, ry0 = HH - SAFE.b - 22 - rr0;
-  if (P.alive) drawRadar(c, rx0, ry0, rr0);
-  c.strokeStyle = HUDC; c.fillStyle = HUDC;
-  const tx = rx0 + rr0 + 22, tH = rr0 * 2, tY = ry0 - rr0;
-  backing(c, tx - 4, tY - 4, 18, tH + 8); c.strokeRect(tx, tY, 10, tH);
-  const thrF = P.ab ? 1 : P.throttle * 0.82; c.fillRect(tx + 2, tY + tH * (1 - thrF), 6, tH * thrF);
-  c.beginPath(); c.moveTo(tx - 3, tY + tH * 0.18); c.lineTo(tx + 13, tY + tH * 0.18); c.stroke();
-  c.font = font(12, 1); c.textAlign = 'left'; c.textBaseline = 'alphabetic';
-  c.fillText(P.abLevel > 0.5 ? 'AB' : `${Math.round(P.throttle * 100)}%`, tx + 20, tY + 12);
-  c.font = font(11); c.globalAlpha = 0.75; c.fillText('油門', tx + 20, tY + 28); c.globalAlpha = 1;
-  // bottom-right: stores
-  const wx = HW - 22, wy = HH - SAFE.b - 22;
-  const rows = [['AIM120', 'AIM-120', P.ammo.AIM120], ['AIM9', 'AIM-9X', P.ammo.AIM9], ['gun', '機砲', P.ammo.gun], ['flr', '熱焰彈', P.flares]];
-  backing(c, wx - 168, wy - rows.length * 20 - 12, 168, rows.length * 20 + 18);
-  c.textBaseline = 'alphabetic';
-  rows.forEach((rw, i) => {
-    const y = wy - (rows.length - 1 - i) * 20 - 2, sel = rw[0] === P.weapon;
-    c.font = font(13, sel); c.textAlign = 'left'; c.fillText((sel ? '▸ ' : '  ') + rw[1], wx - 160, y); c.textAlign = 'right'; c.fillText(String(rw[2]), wx - 10, y);
-  });
+  if (!pit) {
+    // bottom-left: radar + throttle (cockpit view shows these on the displays instead)
+    const rr0 = compact ? 50 : 70, rx0 = 22 + rr0, ry0 = HH - SAFE.b - 22 - rr0;
+    if (P.alive) drawRadar(c, rx0, ry0, rr0);
+    c.strokeStyle = HUDC; c.fillStyle = HUDC;
+    const tx = rx0 + rr0 + 22, tH = rr0 * 2, tY = ry0 - rr0;
+    backing(c, tx - 4, tY - 4, 18, tH + 8); c.strokeRect(tx, tY, 10, tH);
+    const thrF = P.ab ? 1 : P.throttle * 0.82; c.fillRect(tx + 2, tY + tH * (1 - thrF), 6, tH * thrF);
+    c.beginPath(); c.moveTo(tx - 3, tY + tH * 0.18); c.lineTo(tx + 13, tY + tH * 0.18); c.stroke();
+    c.font = font(12, 1); c.textAlign = 'left'; c.textBaseline = 'alphabetic';
+    c.fillText(P.abLevel > 0.5 ? 'AB' : `${Math.round(P.throttle * 100)}%`, tx + 20, tY + 12);
+    c.font = font(11); c.globalAlpha = 0.75; c.fillText('油門', tx + 20, tY + 28); c.globalAlpha = 1;
+    const wx = HW - 22, wy = HH - SAFE.b - 22;
+    const rows = [['AIM120', 'AIM-120', P.ammo.AIM120], ['AIM9', 'AIM-9X', P.ammo.AIM9], ['gun', '機砲', P.ammo.gun], ['flr', '熱焰彈', P.flares]];
+    backing(c, wx - 168, wy - rows.length * 20 - 12, 168, rows.length * 20 + 18);
+    c.textBaseline = 'alphabetic';
+    rows.forEach((rw, i) => {
+      const y = wy - (rows.length - 1 - i) * 20 - 2, sel = rw[0] === P.weapon;
+      c.font = font(13, sel); c.textAlign = 'left'; c.fillText((sel ? '▸ ' : '  ') + rw[1], wx - 160, y); c.textAlign = 'right'; c.fillText(String(rw[2]), wx - 10, y);
+    });
+  }
   // top-left: position
   const tlY = SAFE.t + 22;
   c.textAlign = 'left'; c.textBaseline = 'alphabetic'; c.font = font(13, 1); c.fillText(world.loc.name, 22, tlY);
@@ -1787,16 +1892,105 @@ function drawHUD(dt) {
     m.t -= dt; if (m.t <= 0) game.msg = null;
     else {
       c.globalAlpha = clamp(Math.min(m.t / 0.4, 1), 0, 1); c.fillStyle = m.warn ? WARN : HUDC; c.textAlign = 'center'; c.textBaseline = 'alphabetic';
-      const my = T + (compact ? 70 : 78);
-      c.font = font(compact ? 20 : 26, 1); c.fillText(m.title, cx, my);
-      if (m.sub) { c.font = font(14); c.fillText(m.sub, cx, my + 24); }
+      const my = pit ? Math.max(SAFE.t + 70, T - 60) : T + (compact ? 70 : 78);
+      c.font = font(compact ? 20 : 26, 1); c.fillText(m.title, HW / 2, my);
+      if (m.sub) { c.font = font(14); c.fillText(m.sub, HW / 2, my + 24); }
       c.globalAlpha = 1; c.fillStyle = HUDC;
     }
   }
   if (P.dmgFlash > 0) {
-    c.save(); c.shadowBlur = 0; const g = c.createRadialGradient(cx, cy, Math.min(HW, HH) * 0.25, cx, cy, Math.max(HW, HH) * 0.7);
+    c.save(); c.shadowBlur = 0; const g = c.createRadialGradient(HW / 2, HH / 2, Math.min(HW, HH) * 0.25, HW / 2, HH / 2, Math.max(HW, HH) * 0.7);
     g.addColorStop(0, 'rgba(255,40,30,0)'); g.addColorStop(1, `rgba(255,40,30,${0.55 * P.dmgFlash})`); c.fillStyle = g; c.fillRect(0, 0, HW, HH); c.restore();
   }
+}
+
+// ======================= COCKPIT DISPLAYS (MFD) =======================
+const MF = { g: '#7CF5A9', a: '#F2C14E', b: '#7FD3FF', w: '#E6F0EA', r: '#FF6A5C', bg: '#04110b' };
+const mfont = (s, b) => `${b ? '700 ' : ''}${s}px "B612 Mono", "Noto Sans TC", monospace`;
+let mfdTimer = 0;
+function mfdBase(c, title, osb) {
+  c.setTransform(1, 0, 0, 1, 0, 0); c.globalAlpha = 1; c.shadowBlur = 0;
+  c.fillStyle = MF.bg; c.fillRect(0, 0, 256, 256);
+  c.strokeStyle = 'rgba(124,245,169,.22)'; c.lineWidth = 1; c.strokeRect(6.5, 6.5, 243, 243);
+  c.font = mfont(12, 1); c.fillStyle = MF.g; c.textAlign = 'center'; c.textBaseline = 'top'; c.fillText(title, 128, 11);
+  c.font = mfont(10); c.fillStyle = 'rgba(124,245,169,.7)'; c.textBaseline = 'bottom';
+  osb.forEach((t, i) => c.fillText(t, 38 + i * 60, 246));
+}
+function mfdEng(c) {
+  mfdBase(c, 'ENG / SMS', ['ENG', 'FCS', 'SMS', 'FUEL']);
+  const n = MODEL_DEF[SP.id].nozzle.type === 'flat' ? 2 : 1, on = P.alive ? 1 : 0;
+  const rpm = on * (62 + P.throttle * 36 + P.abLevel * 2), noz = on * (20 + P.abLevel * 70 + P.throttle * 10);
+  for (let i = 0; i < n; i++) {
+    const x = n === 2 ? 30 + i * 50 : 52;
+    c.strokeStyle = MF.g; c.strokeRect(x + 0.5, 40.5, 26, 100); c.fillStyle = P.abLevel > 0.5 ? MF.a : MF.g;
+    const hgt = 100 * clamp(rpm / 105, 0, 1); c.fillRect(x + 3, 140 - hgt, 21, hgt);
+    c.fillStyle = MF.w; c.font = mfont(11, 1); c.textAlign = 'center'; c.textBaseline = 'top'; c.fillText(String(Math.round(rpm)), x + 13, 145);
+    c.font = mfont(9); c.fillStyle = MF.g; c.fillText('RPM', x + 13, 28);
+  }
+  c.textAlign = 'left'; c.textBaseline = 'top';
+  const rows = [['THR', `${Math.round(P.throttle * 100)}%`, MF.w], ['AB', P.abLevel > 0.5 ? 'ON' : 'OFF', P.abLevel > 0.5 ? MF.a : MF.w], ['NOZ', `${Math.round(noz)}%`, MF.w], ['THRUST', `${Math.round(P.thrust / 1000)} kN`, MF.w], ['MACH', P.mach.toFixed(2), P.mach >= 1 ? MF.a : MF.w], ['G', P.gS.toFixed(1), P.gS > 7.5 ? MF.a : MF.w]];
+  rows.forEach(([k, v, col], i) => { c.font = mfont(10); c.fillStyle = MF.g; c.fillText(k, 132, 34 + i * 18); c.font = mfont(12, 1); c.fillStyle = col; c.textAlign = 'right'; c.fillText(v, 238, 33 + i * 18); c.textAlign = 'left'; });
+  c.strokeStyle = 'rgba(124,245,169,.3)'; c.beginPath(); c.moveTo(16, 168.5); c.lineTo(240, 168.5); c.stroke();
+  const st = [['AIM120', 'AIM-120', P.ammo.AIM120], ['AIM9', 'AIM-9X', P.ammo.AIM9], ['gun', 'GUN', P.ammo.gun], ['flr', 'FLARE', P.flares]];
+  st.forEach(([k, lab, n2], i) => {
+    const x = 18 + (i % 2) * 112, y = 176 + Math.floor(i / 2) * 26, sel = k === P.weapon;
+    if (sel) { c.strokeStyle = MF.w; c.strokeRect(x - 3.5, y - 2.5, 108, 22); }
+    c.font = mfont(11, sel); c.fillStyle = sel ? MF.w : MF.g; c.textAlign = 'left'; c.fillText(lab, x, y + 2); c.textAlign = 'right'; c.fillText(String(n2), x + 100, y + 2);
+  });
+}
+function mfdRadar(c) {
+  mfdBase(c, 'SA / RDR', ['RNG', 'MODE', 'TGT', 'DCLT']);
+  const ox = 128, oy = 222, R = 186, range = 20000;
+  c.strokeStyle = 'rgba(124,245,169,.35)'; c.lineWidth = 1;
+  for (let k = 1; k <= 4; k++) { c.beginPath(); c.arc(ox, oy, R * k / 4, -Math.PI / 2 - 60 * DEG, -Math.PI / 2 + 60 * DEG); c.stroke(); }
+  for (const a of [-60, -30, 0, 30, 60]) { const t = (a - 90) * DEG; c.beginPath(); c.moveTo(ox, oy); c.lineTo(ox + Math.cos(t) * R, oy + Math.sin(t) * R); c.stroke(); }
+  let hx = P.f.x, hz = P.f.z; const hl = Math.hypot(hx, hz) || 1; hx /= hl; hz /= hl; const rx = hz, rz = -hx;
+  const sp = p => { const dx = p.x - P.pos.x, dz = p.z - P.pos.z; return [ox + (dx * rx + dz * rz) / range * R, oy - (dx * hx + dz * hz) / range * R]; };
+  c.save(); c.beginPath(); c.rect(8, 26, 240, 200); c.clip();
+  for (const e of enemies) if (e.alive) {
+    const [x, y] = sp(e.pos), tgt = e === P.target;
+    c.fillStyle = tgt ? MF.w : MF.r; c.strokeStyle = c.fillStyle; c.beginPath(); c.moveTo(x, y - 6); c.lineTo(x + 5, y + 4); c.lineTo(x - 5, y + 4); c.closePath(); tgt && P.locked ? c.fill() : c.stroke();
+    if (tgt) { c.beginPath(); c.arc(x, y, 10, 0, Math.PI * 2); c.stroke(); }
+  }
+  for (const m of missiles) if (m.alive) { const [x, y] = sp(m.pos); c.fillStyle = m.owner === P ? MF.a : MF.r; c.fillRect(x - 1.5, y - 1.5, 3, 3); }
+  c.restore();
+  c.strokeStyle = MF.b; c.beginPath(); c.moveTo(ox, oy - 7); c.lineTo(ox - 6, oy + 5); c.lineTo(ox + 6, oy + 5); c.closePath(); c.stroke();
+  c.font = mfont(10); c.fillStyle = MF.g; c.textAlign = 'left'; c.textBaseline = 'top'; c.fillText('RNG 20 KM', 14, 28);
+  c.textAlign = 'right'; c.fillText(`HDG ${String(Math.round((Math.atan2(P.f.x, P.f.z) / DEG + 360) % 360)).padStart(3, '0')}`, 242, 28);
+  if (P.target && P.target.alive) {
+    const d = V3.Distance(P.target.pos, P.pos), vc = -V3.Dot(P.target.vel.subtract(P.vel), P.target.pos.subtract(P.pos).normalize());
+    c.fillStyle = MF.w; c.textAlign = 'left'; c.fillText(`TGT ${(d / 1000).toFixed(1)}KM  ALT ${nfmt(altU(P.target.pos.y))}  VC ${Math.round(spdU(vc))}`, 14, 42);
+    c.fillStyle = P.locked ? MF.a : MF.g; c.fillText(P.locked ? 'LOCKED' : 'ACQUIRING', 14, 55);
+  }
+  if (P.threat) { c.fillStyle = MF.r; c.font = mfont(12, 1); c.textAlign = 'center'; c.fillText('MISSILE', 128, 72); }
+}
+function mfdAdi(c) {
+  mfdBase(c, 'ADI / NAV', ['ADI', 'HSI', 'NAV', 'DATA']);
+  const cx = 128, cy = 112, r = 80, pitch = Math.asin(clamp(P.f.y, -1, 1)), bank = Math.atan2(-P.r.y, P.u.y), k = 2.4;
+  c.save(); c.beginPath(); c.arc(cx, cy, r, 0, Math.PI * 2); c.clip(); c.translate(cx, cy); c.rotate(-bank);
+  const hy = (pitch / DEG) * k;
+  c.fillStyle = '#2f6aa3'; c.fillRect(-200, -400, 400, 400 + hy); c.fillStyle = '#6e4a2b'; c.fillRect(-200, hy, 400, 400);
+  c.strokeStyle = MF.w; c.lineWidth = 2; c.beginPath(); c.moveTo(-200, hy); c.lineTo(200, hy); c.stroke();
+  c.lineWidth = 1; c.font = mfont(9); c.fillStyle = MF.w; c.textBaseline = 'middle';
+  for (let a = -60; a <= 60; a += 10) { if (!a) continue; const y = hy - a * k, w2 = a % 20 === 0 ? 26 : 14; c.beginPath(); c.moveTo(-w2, y); c.lineTo(w2, y); c.stroke(); if (a % 20 === 0) { c.textAlign = 'left'; c.fillText(String(Math.abs(a)), w2 + 3, y); } }
+  c.restore();
+  c.strokeStyle = MF.w; c.lineWidth = 1.2; c.beginPath(); c.arc(cx, cy, r, 0, Math.PI * 2); c.stroke();
+  c.strokeStyle = MF.a; c.lineWidth = 3; c.beginPath(); c.moveTo(cx - 40, cy); c.lineTo(cx - 14, cy); c.lineTo(cx - 7, cy + 7); c.moveTo(cx + 40, cy); c.lineTo(cx + 14, cy); c.lineTo(cx + 7, cy + 7); c.stroke();
+  c.fillStyle = MF.a; c.fillRect(cx - 2, cy - 2, 4, 4); c.lineWidth = 1;
+  c.save(); c.translate(cx, cy); c.rotate(-bank); c.fillStyle = MF.w; c.beginPath(); c.moveTo(0, -r + 2); c.lineTo(-5, -r + 11); c.lineTo(5, -r + 11); c.closePath(); c.fill(); c.restore();
+  const imp = settings.units === 'imp', [la, lo] = latLon();
+  c.font = mfont(11, 1); c.fillStyle = MF.w; c.textBaseline = 'top';
+  c.textAlign = 'left'; c.fillText(`${Math.round(spdU(P.vel.length()))} ${imp ? 'KT' : 'KMH'}`, 14, 198);
+  c.textAlign = 'right'; c.fillText(`${nfmt(altU(P.pos.y))} ${imp ? 'FT' : 'M'}`, 242, 198);
+  c.font = mfont(10); c.fillStyle = MF.g; c.textAlign = 'center'; c.fillText(`${fmtLatS(la)} ${fmtLonS(lo)}`, 128, 214);
+}
+function updateCockpit(dt) {
+  const ck = PM.cockpit; if (!ck || !ck.node.isEnabled()) return;
+  ck.stick.rotation.x = -P.inPitch * 0.28; ck.stick.rotation.z = -P.inRoll * 0.28;
+  ck.thr.position.z = -0.11 + (P.ab ? 0.15 : P.throttle * 0.12);
+  mfdTimer -= dt; if (mfdTimer > 0) return; mfdTimer = 0.1;
+  const [a, b, d] = ck.mfd;
+  mfdEng(a.ctx); a.tex.update(); mfdRadar(b.ctx); b.tex.update(); mfdAdi(d.ctx); d.tex.update();
 }
 
 // ======================= WORLD MAP =======================
@@ -1905,8 +2099,18 @@ function rebase() {
   for (const ps of scene.particleSystems) { if (ps.emitter instanceof V3) sh(ps.emitter); for (const p of ps.particles) sh(p.position); }
   terrain.reposition(); placeStatic();
 }
+let shadowGen = null;
+function setupShadows() {
+  shadowGen = new BABYLON.ShadowGenerator(2048, sunLight);
+  shadowGen.usePercentageCloserFiltering = true; shadowGen.filteringQuality = BABYLON.ShadowGenerator.QUALITY_MEDIUM;
+  shadowGen.bias = 0.00012; shadowGen.normalBias = 0.012; shadowGen.darkness = 0.25;
+  sunLight.shadowMinZ = 1; sunLight.shadowMaxZ = 900; sunLight.autoUpdateExtends = true;
+  for (const k of ['F22', 'F35']) for (const m of models[k].casters) m.receiveShadows = true;
+}
 function setAircraft(id) {
-  SP = SPEC[id] || SPEC.F22; if (PM) PM.root.setEnabled(false); PM = models[SP.id]; PM.root.setEnabled(true); refreshMenu();
+  SP = SPEC[id] || SPEC.F22; if (PM) PM.root.setEnabled(false); PM = models[SP.id]; PM.root.setEnabled(true);
+  if (shadowGen) { const rl = shadowGen.getShadowMap().renderList; rl.length = 0; for (const m of PM.casters) rl.push(m); }
+  refreshMenu();
 }
 function menuPreview() {
   P.alive = true; P.onGround = false; P.gear = false; P.gearT = 0; P.crashPos = null;
@@ -1928,7 +2132,11 @@ function updatePlayerVisual(dt) {
   const hum = 1 - smooth(2500, 9000, P.pos.y);
   const vis = (Math.exp(-Math.pow((P.mach - 1.0) / 0.045, 2)) * (0.25 + 0.75 * hum) + smooth(6.5, 9, P.gS) * hum * 0.3) * (game.state === 'play' ? 1 : 0);
   PM.vapor.setEnabled(vis > 0.02 && P.alive); PM.vapor.visibility = vis * 0.75;
-  PM.root.setEnabled(P.alive && !(game.state === 'play' && CAM.mode === 1));
+  const pit = game.state === 'play' && CAM.mode === 1 && P.alive;
+  PM.root.setEnabled(P.alive); PM.canopy.setEnabled(!pit);
+  if (PM.cockpit) PM.cockpit.node.setEnabled(pit);
+  if (pit) updateCockpit(dt);
+  sunLight.position.copyFrom(P.pos).addInPlace(SUN.scale(400));
 }
 function updateEnv() {
   sunDisc.position.copyFrom(CAM.pos).addInPlace(SUN.scale(90000));
@@ -2101,6 +2309,7 @@ async function boot() {
     const fl = MB.CreateSphere('flareM', { diameter: 1, segments: 8 }, scene); fl.material = MAT.flare; flarePool = new ThinPool(fl, 64); glow.addIncludedOnlyMesh(fl);
     models.F22 = buildModel('F22', true); models.F35 = buildModel('F35', true);
     models.F22.root.setEnabled(false); models.F35.root.setEnabled(false);
+    setupShadows();
     bootMsg('正在生成地形…'); await nextFrame();
     const loc = PRESETS.find(p => p.id === settings.loc) || PRESETS[0];
     setLocation(loc);
